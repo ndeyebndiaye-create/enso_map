@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ENSO Teleconnections — World Map</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+  :root{
+    --ocean: #c8dff0;
+    --land:  #e8e4d8;
+    --land-border: #c9c5b6;
+    --bg: #f5f2ec;
+    --panel: #ffffff;
+    --text: #1a1814;
+    --muted: #6b6760;
+    --blue: #1a5fa8;
+    --blue-light: #d0e8f8;
+    --orange: #c95a1a;
+    --orange-light: #fce4d2;
+    --green: #0f6e56;
+    --green-light: #d4f0e8;
+    --amber: #9a6a00;
+    --amber-light: #fdefc8;
+    --border: #ddd9d0;
+  }
+
+  body{
+    font-family:'DM Sans',sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    padding:20px;
+  }
+
+  h1{
+    font-size:18px;font-weight:600;letter-spacing:-0.3px;
+    margin-bottom:4px;
+  }
+  .subtitle{font-size:12px;color:var(--muted);margin-bottom:16px;}
+
+  .controls{
+    display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;
+  }
+  .phase-btn{
+    display:flex;align-items:center;gap:7px;
+    padding:7px 16px;border-radius:6px;
+    font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;
+    cursor:pointer;border:1.5px solid var(--border);
+    background:var(--panel);color:var(--muted);
+    transition:all .18s;
+  }
+  .phase-btn:hover{border-color:#aaa;color:var(--text);}
+  .phase-btn .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+
+  .phase-btn.nino.active{background:#fff5f0;border-color:#c95a1a;color:#7a3210;}
+  .phase-btn.neutral.active{background:#f0f6fe;border-color:#1a5fa8;color:#0d3d72;}
+  .phase-btn.nina.active{background:#f0fbf7;border-color:#0f6e56;color:#074d3c;}
+
+  .map-wrap{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    overflow:hidden;
+    position:relative;
+  }
+
+  #map-svg{display:block;width:100%;height:auto;}
+
+  .legend{
+    display:flex;gap:14px;flex-wrap:wrap;
+    margin:12px 0 8px;font-size:12px;color:var(--muted);
+  }
+  .leg{display:flex;align-items:center;gap:5px;}
+  .leg-dot{width:10px;height:10px;border-radius:50%;}
+
+  .impact-card{
+    background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;padding:12px 16px;
+    font-size:12px;color:var(--muted);
+    display:flex;flex-wrap:wrap;gap:6px 20px;
+    margin-top:10px;min-height:48px;
+  }
+  .impact-card span{display:flex;align-items:center;gap:5px;white-space:nowrap;}
+  .impact-card span::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;}
+  .wet span::before{background:var(--blue);}
+  .dry span::before{background:var(--orange);}
+  .warm span::before{background:var(--amber);}
+  .info span::before{background:var(--green);}
+
+  .phase-caption{
+    font-size:11.5px;text-align:center;padding:6px 12px 10px;
+    color:var(--muted);font-style:italic;
+  }
+
+  /* Tooltip */
+  #tooltip{
+    position:absolute;
+    background:rgba(10,10,10,0.82);
+    color:#fff;font-size:11px;
+    padding:6px 10px;border-radius:6px;
+    pointer-events:none;display:none;
+    max-width:160px;line-height:1.5;
+    font-family:'DM Mono',monospace;
+    z-index:10;
+  }
+</style>
+</head>
+<body>
+
+<h1>ENSO Teleconnections — Global Climate Impacts</h1>
+<p class="subtitle">How El Niño / La Niña reshape rainfall, drought, monsoons &amp; temperatures worldwide</p>
+
+<div class="controls">
+  <button class="phase-btn nina" onclick="setPhase('nina')">
+    <span class="dot" style="background:#0f6e56"></span>La Niña
+  </button>
+  <button class="phase-btn neutral active" onclick="setPhase('neutral')">
+    <span class="dot" style="background:#1a5fa8"></span>Normal / Neutral
+  </button>
+  <button class="phase-btn nino" onclick="setPhase('nino')">
+    <span class="dot" style="background:#c95a1a"></span>El Niño
+  </button>
+  <span style="font-size:11px;color:var(--muted);margin-left:4px;">Hover markers for details</span>
+</div>
+
+<div class="map-wrap">
+  <svg id="map-svg" viewBox="0 0 960 500"></svg>
+  <div id="tooltip"></div>
+</div>
+
+<div class="legend">
+  <span class="leg"><span class="leg-dot" style="background:#1a5fa8;opacity:.85"></span>Flooding / heavy rain</span>
+  <span class="leg"><span class="leg-dot" style="background:#c95a1a;opacity:.85"></span>Drought / dry</span>
+  <span class="leg"><span class="leg-dot" style="background:#9a6a00;opacity:.85"></span>Temperature anomaly (warm)</span>
+  <span class="leg"><span class="leg-dot" style="background:#0f6e56;opacity:.85"></span>Monsoon shift / cool</span>
+</div>
+
+<div id="impact-card" class="impact-card"></div>
+
+<script>
+// ─── Impact data ─────────────────────────────────────────────────────────────
+const PHASES = {
+  neutral: {
+    caption: "Neutral: rainfall and temperatures near normal globally. Alizé winds and Walker circulation balanced.",
+    markers: [],
+    impacts: [
+      {type:'info', text:'Rainfall near-normal globally'},
+      {type:'info', text:'Monsoons: normal onset & intensity'},
+      {type:'info', text:'Pacific SST: average, no anomaly'},
+      {type:'info', text:'Droughts: none anomalous'},
+    ]
+  },
+  nino: {
+    caption: "El Niño: warm SST anomaly in east Pacific displaces Walker circulation east, causing drought in SE Asia/Australia and floods in South America.",
+    markers: [
+      {lon:-77,  lat:-6,   type:'wet',  label:'Peru/Ecuador',      detail:'Catastrophic flooding,\ncoastal inundations'},
+      {lon:-48,  lat:-12,  type:'dry',  label:'NE Brazil',         detail:'Severe drought,\ncrop failures'},
+      {lon:118,  lat:5,    type:'dry',  label:'SE Asia/Indonesia', detail:'Drought, wildfires,\npoor harvest'},
+      {lon:134,  lat:-25,  type:'dry',  label:'Australia',         detail:'Severe drought,\nbushfires'},
+      {lon:38,   lat:3,    type:'wet',  label:'East Africa',       detail:'Heavy flooding,\nmalaria risk'},
+      {lon:25,   lat:-20,  type:'dry',  label:'Southern Africa',   detail:'Drought,\nfood insecurity'},
+      {lon:78,   lat:20,   type:'warm', label:'India (monsoon)',   detail:'Weakened monsoon,\ndeficit rainfall −10-20%'},
+      {lon:-100, lat:38,   type:'warm', label:'N. America',        detail:'Mild warm winters\nin N. Canada/US'},
+      {lon:-95,  lat:29,   type:'wet',  label:'S. USA',            detail:'Wet winters,\nflooding (SE USA)'},
+      {lon:12,   lat:48,   type:'wet',  label:'Europe NW',         detail:'Milder, wetter\nwinters'},
+      {lon:18,   lat:15,   type:'dry',  label:'Sahel',             detail:'Below-normal rainfall,\ndrought risk'},
+      {lon:170,  lat:-14,  type:'wet',  label:'Pacific Islands',   detail:'Reduced rainfall,\nsome flooding east'},
+    ],
+    impacts: [
+      {type:'dry',  text:'SE Asia / Australia: drought, fires'},
+      {type:'wet',  text:'Peru / Ecuador: catastrophic floods'},
+      {type:'warm', text:'Indian monsoon: weakened −10–20%'},
+      {type:'wet',  text:'East Africa: flooding'},
+      {type:'dry',  text:'Southern Africa: drought, food risk'},
+      {type:'warm', text:'N. America: mild warm winters'},
+      {type:'wet',  text:'Europe NW: milder, wetter winters'},
+      {type:'dry',  text:'Sahel: below-normal rain'},
+      {type:'info', text:'Pacific SST anomaly: +0.5 to +3°C'},
+    ]
+  },
+  nina: {
+    caption: "La Niña: cold SST anomaly in east Pacific strengthens Walker circulation, intensifying monsoons in Asia/Australia and causing drought in South America.",
+    markers: [
+      {lon:118,  lat:5,    type:'wet',  label:'SE Asia/Indonesia', detail:'Heavy monsoon rains,\nflooding'},
+      {lon:147,  lat:-26,  type:'wet',  label:'Australia E.',      detail:'Severe floods,\nexceptional rainfall'},
+      {lon:-77,  lat:-6,   type:'dry',  label:'Peru/Ecuador',      detail:'Drought,\npoor fishing season'},
+      {lon:-48,  lat:-8,   type:'wet',  label:'NE Brazil',         detail:'Above-normal rains,\nagriculture boost'},
+      {lon:42,   lat:7,    type:'dry',  label:'Horn of Africa',    detail:'Severe drought,\nhumanitarian crisis'},
+      {lon:25,   lat:-20,  type:'wet',  label:'Southern Africa',   detail:'Above-normal rain,\nflooding risk'},
+      {lon:78,   lat:20,   type:'wet',  label:'India (monsoon)',   detail:'Enhanced monsoon,\nfloods in Pakistan/NE India'},
+      {lon:-100, lat:55,   type:'cool', label:'N. Canada / Alaska',detail:'Colder winters,\nheavy snowfall'},
+      {lon:-95,  lat:35,   type:'dry',  label:'S. USA',            detail:'Drier winters,\ndrought (S. California)'},
+      {lon:18,   lat:14,   type:'wet',  label:'Sahel',             detail:'Wetter-than-normal\nrainy season'},
+      {lon:12,   lat:50,   type:'cool', label:'N. Europe',         detail:'Colder winters,\nextra snow'},
+    ],
+    impacts: [
+      {type:'wet',  text:'SE Asia / Australia: flooding, strong monsoon'},
+      {type:'dry',  text:'Peru / Ecuador: drought'},
+      {type:'wet',  text:'Indian monsoon: enhanced, floods in Pakistan'},
+      {type:'dry',  text:'Horn of Africa: severe drought'},
+      {type:'wet',  text:'Southern Africa: above-normal rain'},
+      {type:'cool', text:'N. America: colder winters (Canada)'},
+      {type:'dry',  text:'S. USA: drier winters'},
+      {type:'wet',  text:'Sahel: wetter season'},
+      {type:'info', text:'Pacific SST anomaly: −0.5 to −2°C'},
+    ]
+  }
+};
+
+// Color map
+const typeColor = {
+  wet:  {fill:'#1a5fa8', ring:'rgba(26,95,168,0.18)'},
+  dry:  {fill:'#c95a1a', ring:'rgba(201,90,26,0.18)'},
+  warm: {fill:'#9a6a00', ring:'rgba(154,106,0,0.18)'},
+  cool: {fill:'#0f6e56', ring:'rgba(15,110,86,0.18)'},
+  info: {fill:'#555',    ring:'rgba(80,80,80,0.12)'},
+};
+
+// Impact card type → CSS class
+const typeClass = {wet:'wet',dry:'dry',warm:'warm',cool:'info',info:'info'};
+
+let currentPhase = 'neutral';
+
+// ─── D3 Map Setup ─────────────────────────────────────────────────────────────
+const svg = d3.select('#map-svg');
+const W = 960, H = 500;
+
+const projection = d3.geoNaturalEarth1()
+  .scale(153)
+  .translate([W/2, H/2]);
+
+const pathGen = d3.geoPath().projection(projection);
+
+// Graticule
+const graticule = d3.geoGraticule()();
+svg.append('path')
+  .datum(graticule)
+  .attr('fill','none')
+  .attr('stroke','#b8cfe0')
+  .attr('stroke-width','0.4')
+  .attr('opacity','0.5')
+  .attr('d', pathGen);
+
+// Ocean sphere
+svg.append('path')
+  .datum({type:'Sphere'})
+  .attr('fill','#c8dff0')
+  .attr('d', pathGen);
+
+// Equator
+svg.append('path')
+  .datum({type:'LineString', coordinates:[[-180,0],[180,0]]})
+  .attr('fill','none')
+  .attr('stroke','#7a99b0')
+  .attr('stroke-width','0.7')
+  .attr('stroke-dasharray','5 4')
+  .attr('opacity','0.6')
+  .attr('d', pathGen);
+
+// Tropics of Cancer & Capricorn
+[23.5,-23.5].forEach(lat=>{
+  svg.append('path')
+    .datum({type:'LineString',coordinates:[[-180,lat],[180,lat]]})
+    .attr('fill','none').attr('stroke','#a8bfc8')
+    .attr('stroke-width','0.5').attr('stroke-dasharray','3 5')
+    .attr('opacity','0.4').attr('d',pathGen);
+});
+
+// Countries
+const landGroup = svg.append('g').attr('class','land');
+const markerGroup = svg.append('g').attr('class','markers');
+
+d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(world => {
+  const countries = topojson.feature(world, world.objects.countries);
+  const borders   = topojson.mesh(world, world.objects.countries, (a,b)=>a!==b);
+
+  landGroup.selectAll('path.country')
+    .data(countries.features)
+    .join('path')
+    .attr('class','country')
+    .attr('fill','#e4e0d4')
+    .attr('stroke','#c5c0b0')
+    .attr('stroke-width','0.4')
+    .attr('d', pathGen);
+
+  // Country borders
+  landGroup.append('path')
+    .datum(borders)
+    .attr('fill','none')
+    .attr('stroke','#b8b3a4')
+    .attr('stroke-width','0.3')
+    .attr('d', pathGen);
+
+  // Sphere outline
+  svg.append('path')
+    .datum({type:'Sphere'})
+    .attr('fill','none')
+    .attr('stroke','#8aadca')
+    .attr('stroke-width','1')
+    .attr('d', pathGen);
+
+  // Labels for oceans
+  [
+    {lon:-160, lat:5,  label:'Pacific Ocean'},
+    {lon:-30,  lat:5,  label:'Atlantic Ocean'},
+    {lon:75,   lat:-25,label:'Indian Ocean'},
+  ].forEach(o=>{
+    const [x,y] = projection([o.lon, o.lat]);
+    svg.append('text')
+      .attr('x',x).attr('y',y)
+      .attr('text-anchor','middle')
+      .attr('font-size','11')
+      .attr('fill','#5a82a0')
+      .attr('opacity','0.75')
+      .attr('font-family',"'DM Sans',sans-serif")
+      .attr('font-style','italic')
+      .text(o.label);
+  });
+
+  // Equator label
+  const [ex,ey] = projection([-168, 2]);
+  svg.append('text').attr('x',ex+4).attr('y',ey-4)
+    .attr('font-size','9').attr('fill','#7090a0')
+    .attr('font-family',"'DM Sans',sans-serif").text('Equator');
+
+  // Pacific warm pool indicator (center of ENSO)
+  const [px,py] = projection([170,-5]);
+  svg.append('ellipse')
+    .attr('cx',px).attr('cy',py)
+    .attr('rx',48).attr('ry',24)
+    .attr('fill','none')
+    .attr('stroke','#c95a1a')
+    .attr('stroke-width','1')
+    .attr('stroke-dasharray','4 3')
+    .attr('opacity','0.45');
+  svg.append('text').attr('x',px).attr('y',py+4)
+    .attr('text-anchor','middle')
+    .attr('font-size','9').attr('fill','#c95a1a')
+    .attr('font-family',"'DM Sans',sans-serif")
+    .attr('opacity','0.7')
+    .text('ENSO origin');
+
+  renderPhase(currentPhase);
+});
+
+// ─── Render markers ───────────────────────────────────────────────────────────
+const tooltip = document.getElementById('tooltip');
+const mapWrap  = document.querySelector('.map-wrap');
+
+function renderPhase(phase) {
+  markerGroup.selectAll('*').remove();
+
+  const data = PHASES[phase];
+
+  // Walker circulation arrow for nino/nina
+  if(phase === 'nino') {
+    drawWalkerArrow([140,0],[200,0],'#c95a1a','← Walker weakened');
+  } else if(phase === 'nina') {
+    drawWalkerArrow([200,0],[130,0],'#0f6e56','Walker strengthened →');
+  }
+
+  data.markers.forEach(m => {
+    const [x,y] = projection([m.lon, m.lat]);
+    const c = typeColor[m.type];
+    const g = markerGroup.append('g')
+      .attr('class','marker-g')
+      .attr('transform',`translate(${x},${y})`)
+      .style('cursor','pointer');
+
+    // Pulse ring
+    g.append('circle').attr('r',16).attr('fill',c.ring).attr('stroke','none');
+
+    // Main dot
+    g.append('circle').attr('r',8)
+      .attr('fill',c.fill).attr('opacity','0.88')
+      .attr('stroke','#fff').attr('stroke-width','1.2');
+
+    // Icon letter
+    const letters = {wet:'W', dry:'D', warm:'T', cool:'C', info:'N'};
+    g.append('text')
+      .attr('text-anchor','middle').attr('dominant-baseline','central')
+      .attr('font-size','7').attr('font-weight','600')
+      .attr('fill','#fff').attr('font-family',"'DM Mono',monospace")
+      .text(letters[m.type]||'?');
+
+    // Tooltip events
+    g.on('mouseover', function(event) {
+      const rect = mapWrap.getBoundingClientRect();
+      const svgEl = document.getElementById('map-svg');
+      const svgRect = svgEl.getBoundingClientRect();
+      const scaleX = svgRect.width / 960;
+      const scaleY = svgRect.height / 500;
+      const tx = x * scaleX + (svgRect.left - rect.left) + 14;
+      const ty = y * scaleY + (svgRect.top  - rect.top)  - 10;
+      tooltip.style.display = 'block';
+      tooltip.style.left = tx + 'px';
+      tooltip.style.top  = ty + 'px';
+      tooltip.innerHTML = `<strong style="color:#fff">${m.label}</strong><br>${m.detail.replace(/\n/,'<br>')}`;
+    }).on('mouseout', function() {
+      tooltip.style.display = 'none';
+    });
+  });
+
+  // Caption
+  const captionId = 'phase-caption-el';
+  let cap = document.getElementById(captionId);
+  if(!cap){
+    cap = document.createElement('div');
+    cap.id = captionId;
+    cap.className = 'phase-caption';
+    document.querySelector('.map-wrap').after(cap);
+  }
+  cap.textContent = data.caption;
+
+  // Impact card
+  const card = document.getElementById('impact-card');
+  const cls = phase==='nino'?'dry':phase==='nina'?'wet':'info';
+  card.className = 'impact-card ' + cls;
+  card.innerHTML = data.impacts.map(i=>
+    `<span style="color:${typeColor[i.type]?.fill||'#555'}">${i.text}</span>`
+  ).join('');
+}
+
+function drawWalkerArrow(from, to, color, label) {
+  const [x1,y1] = projection(from);
+  const [x2,y2] = projection(to);
+  const arrowId = 'warr'+Math.random().toString(36).slice(2);
+  svg.append('defs').append('marker')
+    .attr('id', arrowId)
+    .attr('viewBox','0 0 10 10')
+    .attr('refX','8').attr('refY','5')
+    .attr('markerWidth','5').attr('markerHeight','5')
+    .attr('orient','auto-start-reverse')
+    .append('path')
+    .attr('d','M2 1L8 5L2 9')
+    .attr('fill','none')
+    .attr('stroke',color)
+    .attr('stroke-width','1.5')
+    .attr('stroke-linecap','round');
+
+  markerGroup.append('line')
+    .attr('x1',x1).attr('y1',y1)
+    .attr('x2',x2).attr('y2',y2)
+    .attr('stroke',color).attr('stroke-width','1.8')
+    .attr('stroke-dasharray','5 3')
+    .attr('opacity','0.6')
+    .attr('marker-end',`url(#${arrowId})`);
+}
+
+// ─── Phase switching ──────────────────────────────────────────────────────────
+function setPhase(p) {
+  currentPhase = p;
+  document.querySelectorAll('.phase-btn').forEach(b=>{
+    b.classList.toggle('active', b.classList.contains(p));
+  });
+  renderPhase(p);
+}
+</script>
+</body>
+</html>
